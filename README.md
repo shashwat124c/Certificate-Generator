@@ -1,8 +1,8 @@
 # Bulk Certificate Generator
 
-## Step 1: Flask foundation
+## Current milestone: request validation and job records
 
-This milestone sets up the Flask application and a health endpoint. The job, database, and certificate modules from the initial draft remain in the project for later milestones; they are not connected to the running app yet.
+The Flask app exposes a health endpoint and accepts validated bulk job requests. Valid requests are stored in SQLite with a queued job and one recipient record per person. Certificate generation and job progress updates are upcoming milestones.
 
 ## Setup
 
@@ -29,3 +29,25 @@ Expected response:
 ```json
 {"status": "ok"}
 ```
+
+## Create a job
+
+Send `POST /api/v1/jobs` with certificate details and at least one recipient:
+
+```json
+{
+  "certificate": {
+    "title": "Certificate of Completion",
+    "course": "Flask Backend Development",
+    "issued_on": "2026-10-09",
+    "issuer": "CertGen Academy"
+  },
+  "recipients": [
+    {"name": "Ada Lovelace", "email": "ada@example.com"}
+  ]
+}
+```
+
+The API checks required fields, the date format, and recipient email addresses. Invalid requests return HTTP `400` with a list of validation errors. Valid requests are saved and return HTTP `202` with a `job_id` and `queued` status.
+
+Set `DATABASE_URL` to use another SQLAlchemy-supported relational database. By default, the app stores its SQLite database at `instance/certificates.db`.
