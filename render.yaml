@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: certgen-api
+    runtime: python
+    plan: starter
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --workers 1 --threads 4 --bind 0.0.0.0:$PORT run:app
+    healthCheckPath: /health
+    numInstances: 1
+    disk:
+      name: certgen-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////var/data/certgen.db
+      - key: CERTIFICATE_STORAGE_PATH
+        value: /var/data/certificates

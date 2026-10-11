@@ -2,6 +2,8 @@
 
 A Flask API that accepts one bulk certificate request, validates its recipients, generates one PDF per person, and reports the result of each generation.
 
+The project includes a React interface for submitting batches, watching progress, and downloading certificates.
+
 ## Requirements
 
 - Python 3.10 or newer
@@ -26,6 +28,18 @@ python run.py
 ```
 
 The API runs at `http://127.0.0.1:5000`. Check that it is available with `GET /health`; the response is `{"status":"ok"}`.
+
+## Run the React frontend
+
+Keep the Flask API running, then open a second terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open the local address printed by Vite, usually `http://localhost:5173`. During local development, Vite forwards `/api` requests to Flask at `http://127.0.0.1:5000`. To use another backend address, set `API_PROXY_TARGET` before starting Vite.
 
 ## Run the tests
 
@@ -96,3 +110,9 @@ For a single PDF preview, send `POST /api/v1/certificates/preview` with a `certi
 - One fixed ReportLab template is used for all recipients.
 - A process-local thread pool keeps this assignment self-contained. Each recipient is processed independently, and one failure does not stop the remaining recipients. For multiple application instances or durable recovery after restarts, replace it with a task queue such as Celery or RQ.
 - For deployment with this in-process worker, run a single application worker and use persistent storage for the database and generated PDFs.
+
+## Deploy on Render
+
+The repository includes a Render Blueprint in `render.yaml`. From the Render dashboard, create a Blueprint and connect this GitHub repository. The Blueprint builds the Python app, starts it with Gunicorn, checks `/health`, and mounts persistent storage at `/var/data` for SQLite and generated PDFs.
+
+This configuration uses Render's Starter web service and a 1 GB persistent disk. Render does not support persistent disks on free web services, so this setup is paid. Check the current Render pricing before creating the service. The app is configured as one instance with one Gunicorn worker because its SQLite database and background thread pool are local to that instance.
