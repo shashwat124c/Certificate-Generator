@@ -1,10 +1,15 @@
 # Bulk Certificate Generator
 
-## Current milestone: background bulk generation
+A Flask API that accepts one bulk certificate request, validates its recipients, generates one PDF per person, and reports the result of each generation.
 
-The Flask app exposes a health endpoint, accepts validated bulk job requests, renders a single certificate PDF, and processes saved jobs in a background thread pool. Each recipient is handled independently: a generation failure is recorded and processing continues for the rest of the job. Clients can poll job progress and download each successful certificate.
+## Requirements
+
+- Python 3.10 or newer
+- pip
 
 ## Setup
+
+From the project directory, create and activate a virtual environment, then install the dependencies:
 
 ```powershell
 python -m venv .venv
@@ -12,66 +17,82 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-## Run
+On macOS or Linux, activate the environment with `source .venv/bin/activate`.
+
+## Run the application
 
 ```powershell
 python run.py
 ```
 
-The server starts at `http://127.0.0.1:5000`. Check the health endpoint at:
+The API runs at `http://127.0.0.1:5000`. Check that it is available with `GET /health`; the response is `{"status":"ok"}`.
 
-```text
-GET http://127.0.0.1:5000/health
+## Run the tests
+
+```powershell
+python -m pytest
 ```
 
-Expected response:
+The tests cover health, job creation, input validation, PDF generation, job progress, an individual generation failure, and certificate downloads.
 
-```json
-{"status": "ok"}
-```
+## Create a bulk generation job
 
-## Create a job
-
-Send `POST /api/v1/jobs` with certificate details and at least one recipient:
+Send `POST /api/v1/jobs` with JSON like this:
 
 ```json
 {
   "certificate": {
     "title": "Certificate of Completion",
     "course": "Flask Backend Development",
-    "issued_on": "2026-10-09",
+    "issued_on": "2026-10-11",
     "issuer": "CertGen Academy"
   },
   "recipients": [
-    {"name": "Ada Lovelace", "email": "ada@example.com"}
+    {"name": "Ada Lovelace", "email": "ada@example.com"},
+    {"name": "Grace Hopper", "email": "grace@example.com"}
   ]
 }
 ```
 
-The API checks required fields, the date format, and recipient email addresses. Invalid requests return HTTP `400` with a list of validation errors. Valid requests are saved and return HTTP `202` with a `job_id` and `queued` status.
+Example PowerShell request:
 
-After returning the response, the app generates one PDF per recipient under `instance/certificates/<job_id>/`. Set `CERTIFICATE_STORAGE_PATH` to choose another storage directory. The built-in thread pool is process-local and suited to this assignment's single-instance deployment; a multi-instance production deployment should use a durable queue.
+```powershell
+$payload = @{
+  certificate = @{
+    title = "Certificate of Completion"
+    course = "Flask Backend Development"
+    issued_on = "2026-10-11"
+    issuer = "CertGen Academy"
+  }
+  recipients = @(
+    @{ name = "Ada Lovelace"; email = "ada@example.com" },
+    @{ name = "Grace Hopper"; email = "grace@example.com" }
+  )
+} | ConvertTo-Json -Depth 5
 
-## Track a job
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/v1/jobs `
+  -ContentType "application/json" -Body $payload
+```
 
-Poll `GET /api/v1/jobs/<job_id>` to see the job status, percentage complete, counts, and each recipient's result. A download URL is included for every successful recipient. Recipient statuses are `queued`, `running`, `completed`, or `failed`; job statuses are `queued`, `running`, `completed`, `partial`, or `failed`.
+The API returns HTTP `202` with a `job_id`. It rejects malformed certificate fields, invalid dates, and missing or invalid recipient details with HTTP `400` and a list of errors. Every valid job is queued for background processing.
 
-Use the recipient's `download_url` to retrieve its PDF. A download requested before successful generation returns HTTP `409`; unknown jobs or recipients return HTTP `404`.
+## Check progress
 
-Set `DATABASE_URL` to use another SQLAlchemy-supported relational database. By default, the app stores its SQLite database at `instance/certificates.db`.
+Poll `GET /api/v1/jobs/<job_id>`. The response includes the job status, percent complete, successful and failed counts, and each recipient's status. Job statuses are `queued`, `running`, `completed`, `partial`, or `failed`. Recipient statuses are `queued`, `running`, `completed`, or `failed`.
+
+## Download certificates
+
+Each completed recipient in the job response includes a `download_url`. Request that URL to download the PDF. A certificate that is still processing or failed is not downloadable. Unknown jobs and recipients return HTTP `404`.
 
 ## Preview one certificate
 
-Send `POST /api/v1/certificates/preview` with one recipient and the certificate details. The response is a downloadable PDF.
+For a single PDF preview, send `POST /api/v1/certificates/preview` with a `certificate` object and one `recipient` object. The response is a PDF file.
 
-```json
-{
-  "certificate": {
-    "title": "Certificate of Completion",
-    "course": "Flask Backend Development",
-    "issued_on": "2026-10-09",
-    "issuer": "CertGen Academy"
-  },
-  "recipient": {"name": "Ada Lovelace", "email": "ada@example.com"}
-}
-```
+## Storage and design decisions
+
+- Flask with an application factory keeps startup and configuration straightforward.
+- SQLite is the default relational database. Set `DATABASE_URL` to use another SQLAlchemy-supported database.
+- Generated PDFs are stored under `instance/certificates/<job_id>/`. Set `CERTIFICATE_STORAGE_PATH` to change this location.
+- One fixed ReportLab template is used for all recipients.
+- A process-local thread pool keeps this assignment self-contained. Each recipient is processed independently, and one failure does not stop the remaining recipients. For multiple application instances or durable recovery after restarts, replace it with a task queue such as Celery or RQ.
+- For deployment with this in-process worker, run a single application worker and use persistent storage for the database and generated PDFs.
