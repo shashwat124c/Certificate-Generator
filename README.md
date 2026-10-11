@@ -1,5 +1,11 @@
 # Bulk Certificate Generator
 
+**Live demo:** [Open CertGen](http://13.233.136.216)
+
+The application is deployed on a single AWS EC2 instance running Ubuntu 24.04. Nginx serves the React frontend and proxies API requests to Flask running under Gunicorn. A live smoke test generated two sample certificates successfully and displayed their download links.
+
+The demo currently uses HTTP and the instance's public IP address; it has no custom domain or HTTPS. The public IP may change if the instance is stopped and started.
+
 A Flask API for submitting bulk certificate-generation jobs. The application validates recipient rows, creates a personalized PDF for each valid recipient, tracks each row's result, and provides a download link for every successfully generated certificate. A React frontend is also included for submitting jobs, following progress, and downloading PDFs.
 
 ## Features completed
