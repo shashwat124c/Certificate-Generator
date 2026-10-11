@@ -10,4 +10,7 @@ class Config:
         "DATABASE_URL", f"sqlite:///{INSTANCE_DIR / 'certificates.db'}"
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    CERTIFICATE_STORAGE_PATH = os.getenv(
+        "CERTIFICATE_STORAGE_PATH", str(INSTANCE_DIR / "certificates")
+    )
 

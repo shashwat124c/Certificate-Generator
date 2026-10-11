@@ -16,6 +16,7 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+    Path(app.config["CERTIFICATE_STORAGE_PATH"]).mkdir(parents=True, exist_ok=True)
     db.init_app(app)
     app.register_blueprint(api, url_prefix="/api/v1")
     app.add_url_rule("/health", view_func=health, methods=["GET"])

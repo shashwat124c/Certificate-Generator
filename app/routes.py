@@ -1,11 +1,12 @@
 import json
 from io import BytesIO
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, current_app, jsonify, request, send_file
 
 from .extensions import db
 from .models import GenerationJob, Recipient
 from .services.certificates import render_certificate_pdf
+from .services.jobs import submit_job
 from .validation import validate_generation_payload
 
 
@@ -75,4 +76,5 @@ def create_job():
 
     db.session.add(job)
     db.session.commit()
+    submit_job(current_app._get_current_object(), job.id)
     return jsonify({"job_id": job.id, "status": job.status, "total": job.total_count}), 202
