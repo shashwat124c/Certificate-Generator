@@ -1,0 +1,22 @@
+[Unit]
+Description=CertGen Flask API and background certificate worker
+After=network.target
+
+[Service]
+Type=simple
+User=certgen
+Group=certgen
+WorkingDirectory=/opt/certgen
+EnvironmentFile=/etc/certgen.env
+StateDirectory=certgen
+UMask=0027
+ExecStart=/opt/certgen/.venv/bin/gunicorn --workers 1 --threads 4 --bind 127.0.0.1:8000 run:app
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
