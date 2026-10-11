@@ -26,7 +26,7 @@ def process_job(app, job_id):
             return
 
         job.status = "running"
-        recipients = list(job.recipients)
+        recipients = [recipient for recipient in job.recipients if recipient.status == "queued"]
         certificate_data = json.loads(job.certificate_data)
         db.session.commit()
 

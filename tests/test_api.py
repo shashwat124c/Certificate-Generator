@@ -53,8 +53,38 @@ def test_invalid_request_is_rejected(client):
     details = response.get_json()["details"]
     assert any("certificate.title" in item for item in details)
     assert any("issued_on" in item for item in details)
-    assert any("recipients[0].name" in item for item in details)
-    assert any("recipients[0].email" in item for item in details)
+    assert not any("recipients[0]" in item for item in details)
+
+
+def test_invalid_recipient_does_not_stop_valid_recipients(client, app, monkeypatch):
+    import app.routes as routes
+
+    monkeypatch.setattr(routes, "submit_job", lambda app, job_id: None)
+    payload = {
+        "certificate": VALID_PAYLOAD["certificate"],
+        "recipients": [
+            {"name": "Ada Lovelace", "email": "ada@example.com"},
+            {"name": "Invalid Row", "email": "not-an-email"},
+        ],
+    }
+
+    response = client.post("/api/v1/jobs", json=payload)
+    assert response.status_code == 202
+    job_id = response.get_json()["job_id"]
+    process_job(app, job_id)
+
+    data = client.get(f"/api/v1/jobs/{job_id}").get_json()
+    assert data["status"] == "partial"
+    assert data["total"] == 2
+    assert data["processed"] == 2
+    assert data["successful"] == 1
+    assert data["failed"] == 1
+    good = next(item for item in data["recipients"] if item["email"] == "ada@example.com")
+    bad = next(item for item in data["recipients"] if item["email"] == "not-an-email")
+    assert good["status"] == "completed"
+    assert good["download_url"]
+    assert bad["status"] == "failed"
+    assert "valid email address" in bad["error"]
 
 
 def test_preview_generates_a_pdf(client):

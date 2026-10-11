@@ -8,7 +8,11 @@ from .extensions import db
 from .models import GenerationJob, Recipient
 from .services.certificates import render_certificate_pdf
 from .services.jobs import submit_job
-from .validation import validate_generation_payload
+from .validation import (
+    validate_generation_payload,
+    validate_job_payload,
+    validate_recipient,
+)
 
 
 api = Blueprint("api", __name__)
@@ -51,13 +55,17 @@ def preview_certificate():
 @api.post("/jobs")
 def create_job():
     payload = request.get_json(silent=True)
-    errors = validate_generation_payload(payload)
+    errors = validate_job_payload(payload)
     if errors:
         return jsonify({"error": "Validation failed", "details": errors}), 400
 
     certificate = payload["certificate"]
+    recipient_results = [
+        (recipient, validate_recipient(recipient, index))
+        for index, recipient in enumerate(payload["recipients"])
+    ]
     job = GenerationJob(
-        total_count=len(payload["recipients"]),
+        total_count=len(recipient_results),
         certificate_data=json.dumps(
             {
                 "title": certificate["title"].strip(),
@@ -67,7 +75,21 @@ def create_job():
             }
         ),
     )
-    for recipient in payload["recipients"]:
+    for index, (recipient, errors) in enumerate(recipient_results):
+        if errors:
+            name = recipient.get("name") if isinstance(recipient, dict) else None
+            email = recipient.get("email") if isinstance(recipient, dict) else None
+            job.recipients.append(
+                Recipient(
+                    name=name.strip()[:255] if isinstance(name, str) and name.strip() else f"Invalid row {index + 1}",
+                    email=email.strip().lower()[:255] if isinstance(email, str) else "",
+                    status="failed",
+                    error_message="; ".join(errors),
+                )
+            )
+            job.failure_count = (job.failure_count or 0) + 1
+            continue
+
         job.recipients.append(
             Recipient(
                 name=recipient["name"].strip(),

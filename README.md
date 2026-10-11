@@ -1,17 +1,26 @@
 # Bulk Certificate Generator
 
-A Flask API that accepts one bulk certificate request, validates its recipients, generates one PDF per person, and reports the result of each generation.
+A Flask API for submitting bulk certificate-generation jobs. The application validates recipient rows, creates a personalized PDF for each valid recipient, tracks each row's result, and provides a download link for every successfully generated certificate. A React frontend is also included for submitting jobs, following progress, and downloading PDFs.
 
-The project includes a React interface for submitting batches, watching progress, and downloading certificates.
+## Features completed
+
+- Bulk certificate generation from one predefined ReportLab template.
+- Recipient-specific certificate PDFs.
+- Per-recipient validation and failure reporting.
+- Mixed-validity batch handling: an invalid recipient does not cancel valid recipients. Invalid rows are marked failed with an explanation, while valid rows continue through generation and remain downloadable.
+- Background processing with job-level progress and per-recipient statuses.
+- PDF preview for a single recipient.
+- React interface for creating jobs, checking progress, and downloading completed certificates.
+- Automated tests for the main API and generation workflows.
 
 ## Requirements
 
-- Python 3.10 or newer
-- pip
+- Python 3.10 or newer and pip
+- Node.js and npm (only needed to run the React frontend)
 
-## Setup
+## Set up the backend
 
-From the project directory, create and activate a virtual environment, then install the dependencies:
+From the project root, create and activate a virtual environment, then install the Python dependencies:
 
 ```powershell
 python -m venv .venv
@@ -19,39 +28,41 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-On macOS or Linux, activate the environment with `source .venv/bin/activate`.
+On macOS or Linux, activate the environment with:
 
-## Run the application
+```bash
+source .venv/bin/activate
+```
 
-```powershell
+## Run the backend
+
+```bash
 python run.py
 ```
 
-The API runs at `http://127.0.0.1:5000`. Check that it is available with `GET /health`; the response is `{"status":"ok"}`.
+The API is available at `http://127.0.0.1:5000`. Confirm it is running with:
+
+```http
+GET /health
+```
+
+The health endpoint returns `{"status":"ok"}`.
 
 ## Run the React frontend
 
-Keep the Flask API running, then open a second terminal:
+Leave the backend running and open a second terminal:
 
-```powershell
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Open the local address printed by Vite, usually `http://localhost:5173`. During local development, Vite forwards `/api` requests to Flask at `http://127.0.0.1:5000`. To use another backend address, set `API_PROXY_TARGET` before starting Vite.
+Open the local URL printed by Vite (typically `http://localhost:5173`). During local development, Vite forwards `/api` requests to the Flask server at `http://127.0.0.1:5000`. Set `API_PROXY_TARGET` if the backend runs at a different address.
 
-## Run the tests
+## Submit a bulk generation job
 
-```powershell
-python -m pytest
-```
-
-The tests cover health, job creation, input validation, PDF generation, job progress, an individual generation failure, and certificate downloads.
-
-## Create a bulk generation job
-
-Send `POST /api/v1/jobs` with JSON like this:
+Send a JSON request to `POST /api/v1/jobs`:
 
 ```json
 {
@@ -68,7 +79,7 @@ Send `POST /api/v1/jobs` with JSON like this:
 }
 ```
 
-Example PowerShell request:
+Example using PowerShell:
 
 ```powershell
 $payload = @{
@@ -84,35 +95,55 @@ $payload = @{
   )
 } | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/v1/jobs `
+$job = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/v1/jobs `
   -ContentType "application/json" -Body $payload
+$job
 ```
 
-The API returns HTTP `202` with a `job_id`. It rejects malformed certificate fields, invalid dates, and missing or invalid recipient details with HTTP `400` and a list of errors. Every valid job is queued for background processing.
+The API responds with HTTP `202 Accepted` and a `job_id`. Invalid certificate details or a missing/empty recipients list are rejected with HTTP `400`. Recipient data is checked row by row: invalid rows are reported as failed, but do not prevent valid rows in the same request from being generated. For example, if one recipient has an invalid email and another has a valid email, the valid recipient's certificate is still generated and can be downloaded.
 
-## Check progress
+## Check job progress and results
 
-Poll `GET /api/v1/jobs/<job_id>`. The response includes the job status, percent complete, successful and failed counts, and each recipient's status. Job statuses are `queued`, `running`, `completed`, `partial`, or `failed`. Recipient statuses are `queued`, `running`, `completed`, or `failed`.
+Poll `GET /api/v1/jobs/<job_id>` using the returned job ID:
 
-## Download certificates
+```powershell
+$jobId = $job.job_id
+$status = Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/v1/jobs/$jobId"
+$status
+```
 
-Each completed recipient in the job response includes a `download_url`. Request that URL to download the PDF. A certificate that is still processing or failed is not downloadable. Unknown jobs and recipients return HTTP `404`.
+The response reports the total, processed, successful, and failed counts, the percentage complete, and each recipient's status and any error message. Job statuses are `queued`, `running`, `completed`, `partial`, or `failed`. Recipient statuses are `queued`, `running`, `completed`, or `failed`. A batch containing both successful and failed rows ends with `partial` status.
 
-## Preview one certificate
+## Download generated certificates
 
-For a single PDF preview, send `POST /api/v1/certificates/preview` with a `certificate` object and one `recipient` object. The response is a PDF file.
+Each completed recipient in the job status response has a `download_url`. Use that URL to retrieve the corresponding PDF:
 
-## Storage and design decisions
+```powershell
+Invoke-WebRequest -Uri "http://127.0.0.1:5000$($status.recipients[0].download_url)" `
+  -OutFile "certificate.pdf"
+```
 
-- Flask with an application factory keeps startup and configuration straightforward.
-- SQLite is the default relational database. Set `DATABASE_URL` to use another SQLAlchemy-supported database.
-- Generated PDFs are stored under `instance/certificates/<job_id>/`. Set `CERTIFICATE_STORAGE_PATH` to change this location.
-- One fixed ReportLab template is used for all recipients.
-- A process-local thread pool keeps this assignment self-contained. Each recipient is processed independently, and one failure does not stop the remaining recipients. For multiple application instances or durable recovery after restarts, replace it with a task queue such as Celery or RQ.
-- For deployment with this in-process worker, run a single application worker and use persistent storage for the database and generated PDFs.
+Only successfully completed certificates are downloadable. A failed or still-processing recipient has no download link. Unknown jobs or certificates return HTTP `404`; a certificate that is not yet available returns HTTP `409`.
 
-## Deploy on Render
+## Preview a single certificate
 
-The repository includes a Render Blueprint in `render.yaml`. From the Render dashboard, create a Blueprint and connect this GitHub repository. The Blueprint builds the Python app, starts it with Gunicorn, checks `/health`, and mounts persistent storage at `/var/data` for SQLite and generated PDFs.
+Send `POST /api/v1/certificates/preview` with a `certificate` object and one `recipient` object. A successful response is a PDF (`application/pdf`) downloaded as `certificate.pdf`.
 
-This configuration uses Render's Starter web service and a 1 GB persistent disk. Render does not support persistent disks on free web services, so this setup is paid. Check the current Render pricing before creating the service. The app is configured as one instance with one Gunicorn worker because its SQLite database and background thread pool are local to that instance.
+## Run the tests
+
+From the project root with the virtual environment activated:
+
+```bash
+python -m pytest
+```
+
+The test suite covers health checks, job creation, request and recipient validation, PDF preview and generation, job progress, per-recipient failure isolation (including a valid row alongside an invalid one), certificate downloads, and not-found responses.
+
+## Design choices
+
+- **Framework:** Flask was selected for the API, using an application factory and blueprints to keep setup and routes organized.
+- **Database:** SQLite is the default relational database. Set `DATABASE_URL` to use another SQLAlchemy-supported database.
+- **Certificate template:** All certificates use one predefined ReportLab template populated with the recipient's name and certificate details.
+- **Batch validation:** Certificate-level errors prevent a job from being created. Recipient rows are validated independently; invalid rows are recorded as failed and valid rows continue. This keeps a single bad entry from blocking the rest of the batch.
+- **Processing:** A process-local thread pool runs generation in the background so the API can return a job ID immediately. Each recipient is processed independently, and one generation error does not stop the remaining recipients. This keeps the assignment self-contained; durable queueing and recovery across process restarts would require a task queue such as Celery or RQ.
+- **File storage:** Generated PDFs are stored under `instance/certificates/<job_id>/` by default. Set `CERTIFICATE_STORAGE_PATH` to change the location. The download endpoint serves these stored files.
